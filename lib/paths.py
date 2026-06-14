@@ -8,6 +8,8 @@ STATE_FILE      = os.path.join(CLAUDEGUARD_DIR, "state.json")
 CONFIG_FILE     = os.path.join(CLAUDEGUARD_DIR, "config.json")
 PROJECTS_DIR    = os.path.join(HOME, ".claude", "projects")
 TOKEN_FILE      = os.path.join(CLAUDEGUARD_DIR, "unlock.token")
+VAULT_DIR       = os.path.join(CLAUDEGUARD_DIR, "vault")
+MANIFEST_FILE   = os.path.join(CLAUDEGUARD_DIR, "manifest.json")
 
 def ensure_dir():
     os.makedirs(CLAUDEGUARD_DIR, exist_ok=True)

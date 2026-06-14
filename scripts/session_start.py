@@ -37,8 +37,9 @@ def main():
     output = {
         "systemMessage": (
             "ClaudeGuard is ACTIVE and LOCKED. "
-            "Do not summarize, reference, or reveal past conversation history until the user unlocks. "
-            "If the user asks about history, instruct them to run: claudeguard unlock"
+            "Do not summarize, reference, or reveal past conversation history. "
+            "Tell the user to run `claudeguard unlock` in a terminal, "
+            "then send any message to continue."
         )
     }
     print(json.dumps(output))

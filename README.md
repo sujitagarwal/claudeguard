@@ -94,7 +94,10 @@ Auto-lock kicks in after configurable inactivity (default 60 min).
 - Passcode stored as a [scrypt](https://en.wikipedia.org/wiki/Scrypt) hash (`N=2^15, r=8, p=1`) — never plaintext
 - Verification uses `hmac.compare_digest` to prevent timing attacks
 - Data directory `~/.claude/claudeguard/` has mode `0700`, all files `0600`
-- Hook-based protection gates Claude Code specifically — not a substitute for OS-level disk encryption (FileVault / BitLocker)
+- **Encryption at rest** — on lock, all `.jsonl` conversation files are encrypted with AES-256-GCM (or AES-CTR+HMAC if `cryptography` package unavailable) and moved to `~/.claude/claudeguard/vault/`. Plaintext files are deleted. `~/.claude/projects/` is empty while locked.
+- Key derived from passcode via PBKDF2-HMAC-SHA256 (200k iterations, 32-byte key) with per-file random salt — key never written to disk
+- Crash safety: a recovery manifest is written before any file is moved. If interrupted, run `claudeguard recover`
+- **Threat model:** protects against anyone without your passcode, including direct filesystem access. Does not protect against someone who has already obtained your passcode or against OS-level keyloggers.
 
 ---
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 claudeguard CLI
-Commands: setup | lock | unlock | status | config | change-passcode | disable
+Commands: setup | lock | unlock | status | config | change-passcode | disable | recover
 """
 import getpass
 import os
@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 from lib.crypto import hash_passcode, verify_passcode, save_hash, has_passcode
 from lib.config import read_config, write_config
 from lib.state import read_state, lock, unlock, is_locked, is_locked_out, record_failed_attempt, write_unlock_token
+from lib.vault import encrypt_projects, decrypt_projects, recover, vault_has_data
 from lib.paths import HASH_FILE
 
 
@@ -51,13 +52,27 @@ def cmd_setup():
         auto_lock = 60
     write_config({"autoLockMinutes": auto_lock})
 
+    # Encrypt existing history on first setup
+    print("Encrypting existing conversation history...")
+    n = encrypt_projects(pass1)
+    print(f"✓ Encrypted {n} file(s).")
+
     lock()
-    print("\nClaudeGuard is active. Claude Code sessions will require your passcode on first prompt.")
+    print("\nClaudeGuard is active. Run `claudeguard unlock` to unlock.")
 
 
 def cmd_lock():
+    if not has_passcode():
+        die("ClaudeGuard not set up.")
+
+    passcode = ask("Passcode to confirm lock: ", hidden=True)
+    if not verify_passcode(passcode):
+        die("Wrong passcode.")
+
+    print("Encrypting conversation history...")
+    n = encrypt_projects(passcode)
     lock()
-    print("Locked.")
+    print(f"✓ Locked. {n} file(s) encrypted.")
 
 
 def cmd_unlock():
@@ -77,8 +92,16 @@ def cmd_unlock():
         remaining = max(0, config.get("maxFailedAttempts", 5) - attempts)
         die(f"Wrong passcode. {remaining} attempt(s) remaining.")
 
+    if vault_has_data():
+        print("Decrypting conversation history...")
+        try:
+            n = decrypt_projects(passcode)
+            print(f"✓ Decrypted {n} file(s).")
+        except ValueError as e:
+            die(f"Decryption failed: {e}")
+
     write_unlock_token()
-    print("✓ Passcode accepted. Switch to Claude Code and send any message to continue.")
+    print("✓ Unlocked. Switch to Claude Code and send any message to continue.")
 
 
 def cmd_status():
@@ -87,9 +110,9 @@ def cmd_status():
     locked = is_locked(config)
     locked_out = is_locked_out()
 
-    print(f"Status:       {'LOCKED' if locked else 'UNLOCKED'}")
+    print(f"Status:        {'LOCKED' if locked else 'UNLOCKED'}")
     if locked_out:
-        print("              (locked out — too many failed attempts)")
+        print("               (locked out — too many failed attempts)")
     if not locked and state.get("lastActivityAt"):
         from datetime import datetime, timezone
         last = datetime.fromisoformat(state["lastActivityAt"])
@@ -97,12 +120,13 @@ def cmd_status():
         auto_min = config.get("autoLockMinutes", 60)
         if auto_min > 0:
             remaining = max(0, int(auto_min - elapsed_min))
-            print(f"Auto-lock in: {remaining} min")
+            print(f"Auto-lock in:  {remaining} min")
         else:
-            print("Auto-lock:    disabled")
-    print(f"Passcode set: {'yes' if has_passcode() else 'no'}")
+            print("Auto-lock:     disabled")
+    print(f"Passcode set:  {'yes' if has_passcode() else 'no'}")
+    print(f"Vault files:   {'yes' if vault_has_data() else 'no'}")
     auto_min = config.get("autoLockMinutes", 60)
-    print(f"Auto-lock:    {'never' if auto_min == 0 else f'{auto_min} min'}")
+    print(f"Auto-lock:     {'never' if auto_min == 0 else f'{auto_min} min'}")
 
 
 def cmd_config():
@@ -124,6 +148,14 @@ def cmd_change_passcode():
     if not verify_passcode(current):
         die("Wrong passcode.")
 
+    # Must decrypt vault first if locked, so we can re-encrypt with new passcode
+    if vault_has_data():
+        print("Re-encrypting vault with new passcode...")
+        try:
+            decrypt_projects(current)
+        except ValueError as e:
+            die(f"Decryption failed: {e}")
+
     pass1 = ask("New passcode: ", hidden=True)
     if len(pass1) < 4:
         die("Passcode must be at least 4 characters.")
@@ -132,6 +164,11 @@ def cmd_change_passcode():
         die("Passcodes do not match.")
 
     save_hash(hash_passcode(pass1))
+
+    if is_locked(read_config()):
+        encrypt_projects(pass1)
+        print("✓ Vault re-encrypted with new passcode.")
+
     print("Passcode changed.")
 
 
@@ -144,10 +181,33 @@ def cmd_disable():
     if not verify_passcode(passcode):
         die("Wrong passcode.")
 
+    # Decrypt history before disabling
+    if vault_has_data():
+        print("Decrypting conversation history...")
+        try:
+            n = decrypt_projects(passcode)
+            print(f"✓ Decrypted {n} file(s).")
+        except ValueError as e:
+            die(f"Decryption failed: {e}")
+
     if os.path.exists(HASH_FILE):
         os.unlink(HASH_FILE)
     write_config({"enabled": False})
-    print("ClaudeGuard disabled. Passcode hash deleted.")
+    unlock()
+    print("ClaudeGuard disabled. Passcode hash deleted. History restored.")
+
+
+def cmd_recover():
+    if not has_passcode():
+        die("ClaudeGuard not set up.")
+
+    print("Recovery mode: repairs interrupted lock/unlock operations.\n")
+    passcode = ask("Passcode: ", hidden=True)
+    if not verify_passcode(passcode):
+        die("Wrong passcode.")
+
+    n = recover(passcode)
+    print(f"✓ Recovery complete. {n} file(s) processed.")
 
 
 # ── Dispatch ───────────────────────────────────────────────────────────────
@@ -160,6 +220,7 @@ COMMANDS = {
     "config":          cmd_config,
     "change-passcode": cmd_change_passcode,
     "disable":         cmd_disable,
+    "recover":         cmd_recover,
 }
 
 USAGE = """\
@@ -167,12 +228,13 @@ Usage: claudeguard <command>
 
 Commands:
   setup           Set up passcode for the first time
-  lock            Lock immediately
-  unlock          Prompt for passcode and unlock
+  lock            Encrypt history and lock
+  unlock          Decrypt history and unlock
   status          Show lock status and config
   config          Edit configuration
   change-passcode Change the passcode
-  disable         Remove passcode and disable ClaudeGuard
+  disable         Decrypt history, remove passcode, disable ClaudeGuard
+  recover         Repair interrupted lock/unlock (use after crash)
 """
 
 if __name__ == "__main__":
