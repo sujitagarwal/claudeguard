@@ -7,7 +7,7 @@ import getpass
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 
 from lib.crypto import hash_passcode, verify_passcode, save_hash, has_passcode
 from lib.config import read_config, write_config
