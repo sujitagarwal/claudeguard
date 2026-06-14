@@ -1,17 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PLUGIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO="https://github.com/sujitagarwal/claudeguard.git"
+INSTALL_DIR="$HOME/.local/share/claudeguard"
 SETTINGS_FILE="$HOME/.claude/settings.json"
+LOCAL_BIN="$HOME/.local/bin"
 
-echo "=== ClaudeGuard Setup ==="
+echo "=== ClaudeGuard Install ==="
 echo ""
 
-# ── 1. Python 3 check ─────────────────────────────────────────────────────────
+# ── 1. Python 3.6+ check ──────────────────────────────────────────────────────
 PYTHON=""
 for candidate in python3 python; do
   if command -v "$candidate" &>/dev/null; then
-    VER=$("$candidate" -c "import sys; print(sys.version_info.minor + sys.version_info.major * 100)")
+    VER=$("$candidate" -c "import sys; print(sys.version_info.major * 100 + sys.version_info.minor)")
     if [[ "$VER" -ge 306 ]]; then
       PYTHON="$candidate"
       break
@@ -23,52 +25,61 @@ if [[ -z "$PYTHON" ]]; then
   echo "ERROR: Python 3.6+ not found." >&2
   echo "  macOS:   brew install python3  OR  https://python.org" >&2
   echo "  Linux:   apt install python3   OR  dnf install python3" >&2
-  echo "  Windows: https://python.org/downloads  OR  winget install Python.Python.3" >&2
+  echo "  Windows: https://python.org/downloads" >&2
   exit 1
 fi
-
 echo "✓ $($PYTHON --version)"
 
-# Verify hashlib.scrypt is available (missing on some minimal builds)
 if ! "$PYTHON" -c "import hashlib; hashlib.scrypt(b'x', salt=b'y'*16, n=1024, r=8, p=1)" 2>/dev/null; then
-  echo "ERROR: hashlib.scrypt not available in this Python build." >&2
-  echo "Install a standard Python 3.6+ build from python.org." >&2
+  echo "ERROR: hashlib.scrypt unavailable in this Python build. Install from python.org." >&2
   exit 1
 fi
 echo "✓ hashlib.scrypt available"
 
-# ── 2. Make scripts executable ────────────────────────────────────────────────
-chmod +x "$PLUGIN_DIR/scripts/session_start.py"
-chmod +x "$PLUGIN_DIR/scripts/check_lock.py"
-chmod +x "$PLUGIN_DIR/cli/claudeguard.py"
-
-# ── 3. Symlink claudeguard into PATH ──────────────────────────────────────────
-if ! command -v claudeguard &>/dev/null; then
-  LOCAL_BIN="$HOME/.local/bin"
-  mkdir -p "$LOCAL_BIN"
-  ln -sf "$PLUGIN_DIR/cli/claudeguard.py" "$LOCAL_BIN/claudeguard"
-
-  if [[ ":$PATH:" != *":$LOCAL_BIN:"* ]]; then
-    echo ""
-    echo "NOTE: Add $LOCAL_BIN to your PATH:"
-    echo "  echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.zshrc  # or ~/.bashrc"
-    echo ""
-  fi
-  echo "✓ claudeguard linked → $LOCAL_BIN/claudeguard"
-else
-  echo "✓ claudeguard already in PATH"
+# ── 2. git check ──────────────────────────────────────────────────────────────
+if ! command -v git &>/dev/null; then
+  echo "ERROR: git not found. Install git and retry." >&2
+  exit 1
 fi
 
-# ── 4. Wire hooks into ~/.claude/settings.json ───────────────────────────────
-echo ""
+# ── 3. Clone or update repo ───────────────────────────────────────────────────
+if [[ -d "$INSTALL_DIR/.git" ]]; then
+  echo "Updating existing install..."
+  git -C "$INSTALL_DIR" pull --ff-only --quiet
+  echo "✓ Updated"
+else
+  echo "Cloning ClaudeGuard..."
+  git clone --quiet "$REPO" "$INSTALL_DIR"
+  echo "✓ Cloned to $INSTALL_DIR"
+fi
+
+# ── 4. Make scripts executable ────────────────────────────────────────────────
+chmod +x "$INSTALL_DIR/scripts/session_start.py"
+chmod +x "$INSTALL_DIR/scripts/check_lock.py"
+chmod +x "$INSTALL_DIR/cli/claudeguard.py"
+
+# ── 5. Symlink claudeguard into PATH ──────────────────────────────────────────
+mkdir -p "$LOCAL_BIN"
+ln -sf "$INSTALL_DIR/cli/claudeguard.py" "$LOCAL_BIN/claudeguard"
+echo "✓ claudeguard linked → $LOCAL_BIN/claudeguard"
+
+if [[ ":$PATH:" != *":$LOCAL_BIN:"* ]]; then
+  echo ""
+  echo "NOTE: Add $LOCAL_BIN to your PATH:"
+  echo "  echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.zshrc"
+  echo "  source ~/.zshrc"
+  echo ""
+fi
+
+# ── 6. Register hooks in ~/.claude/settings.json ─────────────────────────────
 echo "Registering hooks in $SETTINGS_FILE ..."
 mkdir -p "$(dirname "$SETTINGS_FILE")"
 
 "$PYTHON" - <<PYEOF
-import json, os, sys
+import json, os
 
 settings_path = "$SETTINGS_FILE"
-plugin_dir    = "$PLUGIN_DIR"
+plugin_dir    = "$INSTALL_DIR"
 
 settings = {}
 if os.path.exists(settings_path):
@@ -95,7 +106,6 @@ session_hook = {
         "timeout": 30, "async": True,
     }]
 }
-
 check_hook = {
     "hooks": [{
         "type": "command", "command": "python3",
@@ -103,7 +113,6 @@ check_hook = {
         "timeout": 30,
     }]
 }
-
 check_hook_pre = {
     "matcher": "Read|Write|Edit|MultiEdit|Bash|Glob|Grep",
     "hooks": [{
@@ -125,21 +134,22 @@ if not already_registered(settings["hooks"].get("PreToolUse"), "check_lock.py"):
 with open(settings_path, "w") as f:
     json.dump(settings, f, indent=2)
     f.write("\n")
-
 os.chmod(settings_path, 0o600)
 print("Hooks registered.")
 PYEOF
 
-echo "✓ Hooks registered in $SETTINGS_FILE"
+echo "✓ Hooks registered"
 
-# ── 5. Run first-time passcode setup ─────────────────────────────────────────
-echo ""
-echo "Running first-time passcode setup..."
-echo ""
-"$PYTHON" "$PLUGIN_DIR/cli/claudeguard.py" setup
+# ── 7. First-time passcode setup ──────────────────────────────────────────────
+if [[ ! -f "$HOME/.claude/claudeguard/passcode.hash" ]]; then
+  echo ""
+  echo "Running first-time passcode setup..."
+  echo ""
+  "$PYTHON" "$INSTALL_DIR/cli/claudeguard.py" setup
+fi
 
 echo ""
-echo "=== ClaudeGuard is ready ==="
+echo "=== ClaudeGuard installed ==="
 echo ""
 echo "Commands:"
 echo "  claudeguard lock            Lock now"
@@ -148,5 +158,3 @@ echo "  claudeguard status          Show status"
 echo "  claudeguard config          Edit config"
 echo "  claudeguard change-passcode Change passcode"
 echo "  claudeguard disable         Remove passcode and disable"
-echo ""
-echo "Inside Claude Code: /claudeguard unlock | lock | status"
