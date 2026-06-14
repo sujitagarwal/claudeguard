@@ -7,6 +7,7 @@ HASH_FILE       = os.path.join(CLAUDEGUARD_DIR, "passcode.hash")
 STATE_FILE      = os.path.join(CLAUDEGUARD_DIR, "state.json")
 CONFIG_FILE     = os.path.join(CLAUDEGUARD_DIR, "config.json")
 PROJECTS_DIR    = os.path.join(HOME, ".claude", "projects")
+TOKEN_FILE      = os.path.join(CLAUDEGUARD_DIR, "unlock.token")
 
 def ensure_dir():
     os.makedirs(CLAUDEGUARD_DIR, exist_ok=True)

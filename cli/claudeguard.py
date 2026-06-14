@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 
 from lib.crypto import hash_passcode, verify_passcode, save_hash, has_passcode
 from lib.config import read_config, write_config
-from lib.state import read_state, lock, unlock, is_locked, is_locked_out, record_failed_attempt
+from lib.state import read_state, lock, unlock, is_locked, is_locked_out, record_failed_attempt, write_unlock_token
 from lib.paths import HASH_FILE
 
 
@@ -77,8 +77,8 @@ def cmd_unlock():
         remaining = max(0, config.get("maxFailedAttempts", 5) - attempts)
         die(f"Wrong passcode. {remaining} attempt(s) remaining.")
 
-    unlock()
-    print("Unlocked.")
+    write_unlock_token()
+    print("✓ Passcode accepted. Switch to Claude Code and send any message to continue.")
 
 
 def cmd_status():

@@ -2,11 +2,10 @@ import json
 import os
 import stat
 from datetime import datetime, timezone
-from lib.paths import STATE_FILE
+from lib.paths import STATE_FILE, TOKEN_FILE
 
 DEFAULT_STATE = {
     "locked": True,
-    "awaitingPasscode": False,
     "unlockedAt": None,
     "lastActivityAt": None,
     "failedAttempts": 0,
@@ -61,21 +60,12 @@ def is_locked(config: dict) -> bool:
 
 
 def lock() -> dict:
-    return write_state({"locked": True, "awaitingPasscode": False, "unlockedAt": None})
-
-
-def set_awaiting_passcode(waiting: bool) -> dict:
-    return write_state({"awaitingPasscode": waiting})
-
-
-def is_awaiting_passcode() -> bool:
-    return read_state().get("awaitingPasscode", False)
+    return write_state({"locked": True, "unlockedAt": None})
 
 
 def unlock() -> dict:
     return write_state({
         "locked": False,
-        "awaitingPasscode": False,
         "unlockedAt": _now_iso(),
         "lastActivityAt": _now_iso(),
         "failedAttempts": 0,
@@ -98,6 +88,36 @@ def record_failed_attempt(config: dict) -> dict:
         until = datetime.now(timezone.utc) + timedelta(minutes=lockout_min)
         patch["lockoutUntil"] = until.isoformat()
     return write_state(patch)
+
+
+TOKEN_TTL_SECONDS = 60
+
+
+def write_unlock_token() -> None:
+    """Write a short-lived token that the hook consumes to unlock."""
+    with open(TOKEN_FILE, "w") as f:
+        f.write(datetime.now(timezone.utc).isoformat())
+    os.chmod(TOKEN_FILE, stat.S_IRUSR | stat.S_IWUSR)
+
+
+def consume_unlock_token() -> bool:
+    """Return True and delete token if it exists and is fresh (< TTL). Else False."""
+    if not os.path.exists(TOKEN_FILE):
+        return False
+    try:
+        with open(TOKEN_FILE) as f:
+            written_at = _parse_iso(f.read().strip())
+        os.unlink(TOKEN_FILE)
+        if written_at is None:
+            return False
+        age = (datetime.now(timezone.utc) - written_at).total_seconds()
+        return age <= TOKEN_TTL_SECONDS
+    except Exception:
+        try:
+            os.unlink(TOKEN_FILE)
+        except Exception:
+            pass
+        return False
 
 
 def is_locked_out() -> bool:
