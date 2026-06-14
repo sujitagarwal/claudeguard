@@ -1,0 +1,17 @@
+{
+  "name": "claudeguard",
+  "displayName": "ClaudeGuard",
+  "version": "0.1.0",
+  "description": "Local passcode lock for Claude Code conversation history. Opt-in, bcrypt-hashed passcode, auto-lock, Touch ID / Windows Hello support.",
+  "author": {
+    "name": "ClaudeGuard Contributors",
+    "url": "https://github.com/YOUR_USERNAME/claudeguard"
+  },
+  "homepage": "https://github.com/YOUR_USERNAME/claudeguard",
+  "repository": "https://github.com/YOUR_USERNAME/claudeguard",
+  "license": "MIT",
+  "keywords": ["security", "passcode", "lock", "privacy", "auth"],
+  "defaultEnabled": false,
+  "hooks": "../hooks/hooks.json",
+  "skills": "../skills/"
+}

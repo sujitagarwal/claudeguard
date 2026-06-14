@@ -1,0 +1,40 @@
+{
+  "SessionStart": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "python3",
+          "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/session_start.py"],
+          "timeout": 30,
+          "async": true
+        }
+      ]
+    }
+  ],
+  "UserPromptSubmit": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "python3",
+          "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/check_lock.py"],
+          "timeout": 30
+        }
+      ]
+    }
+  ],
+  "PreToolUse": [
+    {
+      "matcher": "Read|Write|Edit|MultiEdit|Bash|Glob|Grep",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "python3",
+          "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/check_lock.py"],
+          "timeout": 30
+        }
+      ]
+    }
+  ]
+}
